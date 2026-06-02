@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "Flow": {
+      "title": "Flow",
+      "description": "Represents an education flow or intake cohort",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the flow" },
+        "flow_number": { "type": "integer", "description": "Sequential number of the flow (e.g. 57, 58)" },
+        "start_date": { "type": "string", "description": "The official Wednesday start date for the student's flow" },
+        "status": { "type": "string", "enum": ["Active", "Graduated"], "description": "Current status of the flow" }
+      },
+      "required": ["id", "flow_number", "start_date", "status"]
+    },
+    "StudentSnapshot": {
+      "title": "StudentSnapshot",
+      "description": "Represents a student progress record within a weekly file snapshot",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Student email address" },
+        "flow_number": { "type": "integer", "description": "Student flow number" },
+        "current_unit": { "type": "integer", "description": "Current block or unit index completed" },
+        "snapshot_date": { "type": "string", "description": "The date of the current database export" },
+        "calculated_delta": { "type": "integer", "description": "Progress delta relative to expected unit benchmark" },
+        "system_status": { "type": "string", "enum": ["Green", "Yellow", "Red", "Graduated", "Churn", "Freeze"], "description": "Calculated status of student" },
+        "no_movement_counter": { "type": "integer", "description": "Number of consecutive weeks student showed zero progress" },
+        "next_contact_date": { "type": "string", "description": "Optional scheduled next follow-up date" }
+      },
+      "required": ["email", "flow_number", "current_unit", "snapshot_date", "calculated_delta", "system_status", "no_movement_counter"]
+    },
+    "Interaction": {
+      "title": "Interaction",
+      "description": "Represents a CRM logging note for a manual retention metedology action with a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the note" },
+        "student_email": { "type": "string", "description": "Email of the student being contacted" },
+        "type": { "type": "string", "enum": ["Звонок", "Telegram"], "description": "Channel used for communication" },
+        "result_status": { "type": "string", "enum": ["Заморозка", "Отказ / Закрыть", "В работе / На контроле", "НД", "Мороз", "Перенос потока"], "description": "Manual override or contact result" },
+        "comment": { "type": "string", "description": "Methodist notes and comments" },
+        "next_contact_date": { "type": "string", "description": "Optional calculated next contact date" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "student_email", "type", "result_status", "comment", "created_at"]
+    }
+  },
+  "firestore": {
+    "/flows/{flowId}": {
+      "schema": "Flow",
+      "description": "Flow calendars"
+    },
+    "/snapshots/{snapshotId}": {
+      "schema": "StudentSnapshot",
+      "description": "Weekly imported student snapshots"
+    },
+    "/interactions/{interactionId}": {
+      "schema": "Interaction",
+      "description": "Retention management CRM note entries"
+    }
+  }
+}

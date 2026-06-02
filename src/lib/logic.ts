@@ -32,8 +32,10 @@ export function generateFlow(flow_number: number, forceSnapshotDate?: Date): Flo
   const startDateObj = parseISO(startDateStr);
   
   let status: FlowStatus = 'Active';
-  if (forceSnapshotDate) {
-    const passed = Math.floor(differenceInDays(forceSnapshotDate, startDateObj) / 7);
+  if (flow_number <= 56) {
+    status = 'Graduated';
+  } else if (forceSnapshotDate) {
+    const passed = Math.floor(differenceInDays(forceSnapshotDate, startDateObj) / 7) + 1;
     if (passed >= 14) status = 'Graduated';
   }
 
@@ -110,7 +112,14 @@ export function processNewSnapshots(
     let system_status: SystemStatus = 'Green';
     if (expectedUnit === 14 && current_unit >= 13) {
       system_status = 'Graduated';
-    } else if (calculated_delta <= -5 && no_movement_counter >= 2) { // 2+ weeks zero movement in Red is Churn
+    } else if (flow_number <= 56) {
+      // Students in graduated flows who did not graduate are treated as Red or Churn (if zero progress)
+      if (no_movement_counter >= 1) {
+        system_status = 'Churn';
+      } else {
+        system_status = 'Red';
+      }
+    } else if (calculated_delta <= -5 && no_movement_counter >= 1) { 
       system_status = 'Churn';
     } else if (expectedUnit === 14 && current_unit < 12) {
       system_status = 'Red'; // failed to finish on time
@@ -144,7 +153,7 @@ export function autoUpdateFlows(flows: Flow[]): Flow[] {
     if (flow.status === 'Active') {
       const daysDiff = differenceInDays(today, parseISO(flow.start_date));
       const weeksPassed = Math.floor(daysDiff / 7) + 1;
-      if (weeksPassed > 14) {
+      if (weeksPassed >= 14 || flow.flow_number <= 56) {
         return { ...flow, status: 'Graduated' as FlowStatus };
       }
     }

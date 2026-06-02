@@ -96,10 +96,16 @@ export function DataManagement({ flows, updateFlows, existingSnapshots, addSnaps
         updateAiMetrics(aiData);
       }
 
+      const firstLine = currentCsv.split(/\r?\n/)[0] || '';
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const semiCount = (firstLine.match(/;/g) || []).length;
+      const delimiter = semiCount > commaCount ? ';' : ',';
+
       // Also parse locally for offline local state
       Papa.parse(currentCsv, {
         header: true,
         skipEmptyLines: true,
+        delimiter: delimiter,
         complete: (results) => {
           try {
             const { newSnapshots, newFlows } = processNewSnapshots(results.data, snapshotDate, flows, existingSnapshots);
@@ -119,9 +125,15 @@ export function DataManagement({ flows, updateFlows, existingSnapshots, addSnaps
       setUploadStatus(`Ошибка AI: ${err.message}`);
       // Fallback local logic
       const currentCsv = await file.text();
+      const firstLine = currentCsv.split(/\r?\n/)[0] || '';
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const semiCount = (firstLine.match(/;/g) || []).length;
+      const delimiter = semiCount > commaCount ? ';' : ',';
+
       Papa.parse(currentCsv, {
         header: true,
         skipEmptyLines: true,
+        delimiter: delimiter,
         complete: (results) => {
           try {
             const { newSnapshots, newFlows } = processNewSnapshots(results.data, snapshotDate, flows, existingSnapshots);

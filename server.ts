@@ -40,7 +40,12 @@ function parseCsv(csvText: string) {
   const lines = csvText.split(/\r?\n/);
   if (lines.length < 2) return [];
   
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').replace(/^\ufeff/, ''));
+  const firstLine = lines[0];
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const semiCount = (firstLine.match(/;/g) || []).length;
+  const delimiter = semiCount > commaCount ? ';' : ',';
+  
+  const headers = firstLine.split(delimiter).map(h => h.trim().replace(/^"|"$/g, '').replace(/^\ufeff/, ''));
   
   // Robust Column Mapping with fallbacks
   let emailIdx = headers.findIndex(h => /Email|email|емейл|Почта|Mail/i.test(h));
@@ -63,7 +68,7 @@ function parseCsv(csvText: string) {
       const char = line[charIdx];
       if (char === '"') {
         inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
+      } else if (char === delimiter && !inQuotes) {
         cols.push(current.trim());
         current = '';
       } else {
@@ -94,9 +99,9 @@ app.post('/api/process-snapshots', async (req, res) => {
     const currentRecords = parseCsv(currentCsv);
     const previousRecords = parseCsv(previousCsv || '');
     
-    const previousMap = new Map<string, number>();
+    const previousMap = new Map<string, any>();
     for (const r of previousRecords) {
-      previousMap.set(r.email, r.current_unit);
+      previousMap.set(r.email, r);
     }
 
     const referenceDateStr = snapshotDate || '2026-06-02';
@@ -116,7 +121,8 @@ app.post('/api/process-snapshots', async (req, res) => {
       const expectedUnit = getExpectedUnitForFlow(s.flow_number, referenceDateStr);
       const delta = s.current_unit - expectedUnit;
       
-      const prevUnit = previousMap.get(s.email);
+      const prevRecord = previousMap.get(s.email);
+      const prevUnit = prevRecord?.current_unit;
       const hasMovement = prevUnit !== undefined && prevUnit !== s.current_unit;
       const isRed = delta <= -5;
 
@@ -124,6 +130,12 @@ app.post('/api/process-snapshots', async (req, res) => {
       
       if (expectedUnit === 14 && s.current_unit >= 13) {
         status = 'Graduated';
+      } else if (s.flow_number <= 56) {
+        if (prevUnit !== undefined && !hasMovement) {
+          status = 'Churn';
+        } else {
+          status = 'Red';
+        }
       } else if (isRed && prevUnit !== undefined && !hasMovement) {
         // Red zone with zero movement from previous snapshot is treated as Churn
         status = 'Churn';
