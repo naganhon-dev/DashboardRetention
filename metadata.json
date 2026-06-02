@@ -1,0 +1,6 @@
+{
+  "name": "Retention PRO",
+  "description": "Аналітична CRM/BI система для методолога з утримання студентів. Трекінг прогресу, виявлення проблемних зон (Жовта і Червона) та контроль Completion Rate за допомогою щотижневих зрізів CSV.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
