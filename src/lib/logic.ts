@@ -2,31 +2,45 @@ import { Flow, StudentSnapshot, SystemStatus, FlowStatus, AIMetrics, Interaction
 import { differenceInDays, parseISO, isValid, addDays, format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 
-export function getExpectedUnitForFlow(flow_number: number): number {
-  if (flow_number <= 56) return 14;
-  if (flow_number === 57) return 11;
-  if (flow_number === 58) return 8;
-  if (flow_number === 59) return 5;
-  if (flow_number === 60) return 2;
-  return Math.max(1, 14 - (flow_number - 56) * 3);
+export function getStartDateForFlow(flow_number: number): string {
+  const baseDate = new Date('2025-05-07'); // Flow 42 is May 7, 2025
+  const daysToAdd = (flow_number - 42) * 21;
+  const startDate = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+  return startDate.toISOString().split('T')[0];
+}
+
+export function getExpectedUnitForFlow(flow_number: number, snapshotDateStr: string = '2026-06-02'): number {
+  const flow_start_date = getStartDateForFlow(flow_number);
+  const snapDate = new Date(snapshotDateStr);
+  const flowDate = new Date(flow_start_date);
+  const diffTime = snapDate.getTime() - flowDate.getTime();
+  const Days_Delta = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (Days_Delta < 0) return 2;
+  const Weeks_Passed = Math.floor(Days_Delta / 7);
+  
+  if (Weeks_Passed === 0) return 2;
+  if (Weeks_Passed >= 1 && Weeks_Passed <= 10) return Weeks_Passed + 2;
+  if (Weeks_Passed === 11) return 12;
+  if (Weeks_Passed === 12) return 13;
+  if (Weeks_Passed === 13) return 14;
+  return 14;
 }
 
 export function generateFlow(flow_number: number, forceSnapshotDate?: Date): Flow {
-  const baseFlow = 47;
-  const baseDate = parseISO('2026-04-29'); // Wednesday
-  const diffFlows = flow_number - baseFlow;
-  const startDateObj = addDays(baseDate, diffFlows * 21);
+  const startDateStr = getStartDateForFlow(flow_number);
+  const startDateObj = parseISO(startDateStr);
   
   let status: FlowStatus = 'Active';
   if (forceSnapshotDate) {
-    const passed = Math.floor(differenceInDays(forceSnapshotDate, startDateObj) / 7) + 1;
+    const passed = Math.floor(differenceInDays(forceSnapshotDate, startDateObj) / 7);
     if (passed >= 14) status = 'Graduated';
   }
 
   return {
     id: uuidv4(),
     flow_number,
-    start_date: format(startDateObj, 'yyyy-MM-dd'),
+    start_date: startDateStr,
     status
   };
 }
@@ -52,11 +66,22 @@ export function processNewSnapshots(
   const addedFlows: Flow[] = [];
   const allFlows = [...flows];
 
+  let emailKey = 'Email';
+  let flowKey = 'Поток';
+  let unitKey = 'Блок';
+
+  if (csvData.length > 0) {
+    const keys = Object.keys(csvData[0]);
+    emailKey = keys.find(k => /Email|email|емейл|Почта|Mail/i.test(k)) || 'Email';
+    flowKey = keys.find(k => /Поток|поток|Flow|flow/i.test(k)) || 'Поток';
+    unitKey = keys.find(k => /Блок|блок|Unit|unit/i.test(k)) || 'Блок';
+  }
+
   for (const row of csvData) {
-    const emailVal = row['Email'] || row['email'] || row['емейл'] || row['Почта'];
+    const emailVal = row[emailKey];
     const email = emailVal ? String(emailVal).trim() : '';
-    const flow_number = parseInt(row['Поток'] || row['поток'] || row['Flow'] || row['flow'], 10);
-    const current_unit = parseInt(row['Блок'] || row['блок'] || row['Unit'] || row['unit'], 10);
+    const flow_number = parseInt(row[flowKey], 10);
+    const current_unit = parseInt(row[unitKey], 10);
 
     if (!email || isNaN(flow_number) || isNaN(current_unit)) {
       continue; // Skip invalid rows
@@ -69,7 +94,7 @@ export function processNewSnapshots(
       addedFlows.push(flow);
     }
 
-    const expectedUnit = getExpectedUnitForFlow(flow_number);
+    const expectedUnit = getExpectedUnitForFlow(flow_number, snapshotDateStr);
     const calculated_delta = current_unit - expectedUnit;
 
     const previousSnapshot = previousMap.get(email);
@@ -83,15 +108,17 @@ export function processNewSnapshots(
     }
 
     let system_status: SystemStatus = 'Green';
-    if (expectedUnit >= 14 && current_unit >= 13) {
+    if (expectedUnit === 14 && current_unit >= 13) {
       system_status = 'Graduated';
     } else if (calculated_delta <= -5 && no_movement_counter >= 2) { // 2+ weeks zero movement in Red is Churn
       system_status = 'Churn';
+    } else if (expectedUnit === 14 && current_unit < 12) {
+      system_status = 'Red'; // failed to finish on time
     } else if (calculated_delta >= -2) {
       system_status = 'Green';
     } else if (calculated_delta === -3 || calculated_delta === -4) {
       system_status = 'Yellow';
-    } else if (calculated_delta <= -5) {
+    } else {
       system_status = 'Red';
     }
 
@@ -165,7 +192,7 @@ export function calculateDashboardMetrics(
 
   for (const s of latestSnaps) {
     const inter = latestInteractionsMap.get(s.email);
-    const expectedUnit = getExpectedUnitForFlow(s.flow_number);
+    const expectedUnit = getExpectedUnitForFlow(s.flow_number, referenceDateStr);
     const delta = s.current_unit - expectedUnit;
     
     let currentStatus: SystemStatus = s.system_status;
@@ -177,23 +204,35 @@ export function calculateDashboardMetrics(
       } else if (inter.result_status === 'Отказ / Закрыть' || inter.result_status === 'Мороз') {
         currentStatus = 'Churn';
       } else {
-        // Inherits expected next contact schedule
         if (inter.next_contact_date) {
           nextContactStr = inter.next_contact_date;
+        }
+        if (expectedUnit === 14 && s.current_unit >= 13) {
+          currentStatus = 'Graduated';
+        } else if (expectedUnit === 14 && s.current_unit < 12) {
+          currentStatus = 'Red';
+        } else if (delta >= -2) {
+          currentStatus = 'Green';
+        } else if (delta === -3 || delta === -4) {
+          currentStatus = 'Yellow';
+        } else {
+          currentStatus = 'Red';
         }
       }
     } else {
       // Automatic calculations if no overrides
-      if (expectedUnit >= 14 && s.current_unit >= 13) {
+      if (expectedUnit === 14 && s.current_unit >= 13) {
         currentStatus = 'Graduated';
       } else if (delta <= -5 && s.no_movement_counter >= 2) { // 2+ weeks of zero movement in Red is Churn
         currentStatus = 'Churn';
-      } else if (delta <= -5) {
+      } else if (expectedUnit === 14 && s.current_unit < 12) {
         currentStatus = 'Red';
+      } else if (delta >= -2) {
+        currentStatus = 'Green';
       } else if (delta === -3 || delta === -4) {
         currentStatus = 'Yellow';
       } else {
-        currentStatus = 'Green';
+        currentStatus = 'Red';
       }
     }
     
@@ -210,15 +249,20 @@ export function calculateDashboardMetrics(
       // Check not_started list condition: flow >= 60 and current_unit <= 1
       if (s.flow_number >= 60 && s.current_unit <= 1) {
         not_started++;
-      } else if (currentStatus === 'Green') {
-        in_norm_green++;
-      } else if (currentStatus === 'Yellow') {
-        // Operational rule: lagging_yellow: Delta is -3 or -4 AND no future contact date pending
-        const isFutureContactPending = nextContactStr && nextContactStr > todayStr;
-        if (!isFutureContactPending) {
-          lagging_yellow++;
+      } else if (s.flow_number >= 57) {
+        if (currentStatus === 'Green') {
+          in_norm_green++;
+        } else if (currentStatus === 'Yellow') {
+          // Operational rule: lagging_yellow: Delta is -3 or -4 AND no future contact date pending
+          const isFutureContactPending = nextContactStr && nextContactStr > todayStr;
+          if (!isFutureContactPending) {
+            lagging_yellow++;
+          }
+        } else if (currentStatus === 'Red') {
+          critical_red++;
         }
-      } else if (currentStatus === 'Red') {
+      } else {
+        // old flows 42-56 who never reached units 13-14 are critical_red
         critical_red++;
       }
     }
@@ -238,7 +282,7 @@ export function calculateDashboardMetrics(
             delta,
             reason: inter?.result_status === 'В работе / На контроле' ? 'Follow-up Reminder' : 'Follow-up'
           });
-        } else if (currentStatus === 'Yellow') {
+        } else if (s.flow_number >= 57 && currentStatus === 'Yellow') {
           today_call_queue.push({
             email: s.email,
             flow: s.flow_number,
@@ -246,7 +290,7 @@ export function calculateDashboardMetrics(
             delta,
             reason: 'Lagging Yellow'
           });
-        } else if (currentStatus === 'Red') {
+        } else if (currentStatus === 'Red' || s.flow_number <= 56) {
           today_call_queue.push({
             email: s.email,
             flow: s.flow_number,

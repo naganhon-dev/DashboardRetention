@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Flow, StudentSnapshot, AIMetrics, Interaction } from '../types';
-import { autoUpdateFlows } from './logic';
+import { autoUpdateFlows, getStartDateForFlow } from './logic';
 
 export function useStore() {
   const [flows, setFlows] = useState<Flow[]>([]);
@@ -16,18 +16,27 @@ export function useStore() {
     const savedInteractions = localStorage.getItem('retention-interactions');
     
     let initialFlows = savedFlows ? JSON.parse(savedFlows) : [];
-    const initialSnapshots = savedSnapshots ? JSON.parse(savedSnapshots) : [];
-    const initialAiMetrics = savedAiMetrics ? JSON.parse(savedAiMetrics) : null;
-    const initialInteractions = savedInteractions ? JSON.parse(savedInteractions) : [];
-
-    // Auto-graduate flows
-    initialFlows = autoUpdateFlows(initialFlows);
+    if (initialFlows.length === 0) {
+      const seededFlows = [];
+      for (let fNum = 42; fNum <= 60; fNum++) {
+        seededFlows.push({
+          id: `flow-seed-${fNum}`,
+          flow_number: fNum,
+          start_date: getStartDateForFlow(fNum),
+          status: fNum <= 56 ? 'Graduated' : 'Active'
+        });
+      }
+      initialFlows = seededFlows;
+    } else {
+      // Auto-graduate flows
+      initialFlows = autoUpdateFlows(initialFlows);
+    }
     localStorage.setItem('retention-flows', JSON.stringify(initialFlows));
 
     setFlows(initialFlows);
-    setSnapshots(initialSnapshots);
-    setAiMetrics(initialAiMetrics);
-    setInteractions(initialInteractions);
+    setSnapshots(savedSnapshots ? JSON.parse(savedSnapshots) : []);
+    setAiMetrics(savedAiMetrics ? JSON.parse(savedAiMetrics) : null);
+    setInteractions(savedInteractions ? JSON.parse(savedInteractions) : []);
     setIsLoaded(true);
   }, []);
 
@@ -66,5 +75,28 @@ export function useStore() {
     }
   };
 
-  return { flows, snapshots, aiMetrics, interactions, updateFlows, updateSnapshots, addSnapshots, updateAiMetrics, addInteraction, isLoaded };
+  const clearAllData = () => {
+    localStorage.removeItem('retention-flows');
+    localStorage.removeItem('retention-snapshots');
+    localStorage.removeItem('retention-aimetrics');
+    localStorage.removeItem('retention-interactions');
+    
+    const seededFlows = [];
+    for (let fNum = 42; fNum <= 60; fNum++) {
+      seededFlows.push({
+        id: `flow-seed-${fNum}`,
+        flow_number: fNum,
+        start_date: getStartDateForFlow(fNum),
+        status: fNum <= 56 ? 'Graduated' : 'Active'
+      });
+    }
+    setFlows(seededFlows);
+    localStorage.setItem('retention-flows', JSON.stringify(seededFlows));
+
+    setSnapshots([]);
+    setAiMetrics(null);
+    setInteractions([]);
+  };
+
+  return { flows, snapshots, aiMetrics, interactions, updateFlows, updateSnapshots, addSnapshots, updateAiMetrics, addInteraction, clearAllData, isLoaded };
 }

@@ -9,14 +9,29 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
 
-// Deterministic expected unit formula
-function getExpectedUnitForFlow(flow_number: number): number {
-  if (flow_number <= 56) return 14;
-  if (flow_number === 57) return 11;
-  if (flow_number === 58) return 8;
-  if (flow_number === 59) return 5;
-  if (flow_number === 60) return 2;
-  return Math.max(1, 14 - (flow_number - 56) * 3);
+function getStartDateForFlow(flow_number: number): string {
+  const baseDate = new Date('2025-05-07'); // Flow 42 is May 7, 2025
+  const daysToAdd = (flow_number - 42) * 21;
+  const startDate = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+  return startDate.toISOString().split('T')[0];
+}
+
+function getExpectedUnitForFlow(flow_number: number, snapshotDateStr: string = '2026-06-02'): number {
+  const flow_start_date = getStartDateForFlow(flow_number);
+  const snapDate = new Date(snapshotDateStr);
+  const flowDate = new Date(flow_start_date);
+  const diffTime = snapDate.getTime() - flowDate.getTime();
+  const Days_Delta = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (Days_Delta < 0) return 2;
+  const Weeks_Passed = Math.floor(Days_Delta / 7);
+  
+  if (Weeks_Passed === 0) return 2;
+  if (Weeks_Passed >= 1 && Weeks_Passed <= 10) return Weeks_Passed + 2;
+  if (Weeks_Passed === 11) return 12;
+  if (Weeks_Passed === 12) return 13;
+  if (Weeks_Passed === 13) return 14;
+  return 14;
 }
 
 // Simple parsing helper that handles Russian, Ukrainian or English headers
@@ -25,12 +40,16 @@ function parseCsv(csvText: string) {
   const lines = csvText.split(/\r?\n/);
   if (lines.length < 2) return [];
   
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').replace(/^\ufeff/, ''));
   
-  // Robust Column Mapping
-  const emailIdx = headers.findIndex(h => /Email|email|емейл|Почта/i.test(h));
-  const flowIdx = headers.findIndex(h => /Поток|поток|Flow|flow/i.test(h));
-  const unitIdx = headers.findIndex(h => /Блок|блок|Unit|unit/i.test(h));
+  // Robust Column Mapping with fallbacks
+  let emailIdx = headers.findIndex(h => /Email|email|емейл|Почта|Mail/i.test(h));
+  let flowIdx = headers.findIndex(h => /Поток|поток|Flow|flow/i.test(h));
+  let unitIdx = headers.findIndex(h => /Блок|блок|Unit|unit/i.test(h));
+  
+  if (emailIdx === -1) emailIdx = 0;
+  if (flowIdx === -1) flowIdx = 1;
+  if (unitIdx === -1) unitIdx = 2;
   
   const results = [];
   for (let i = 1; i < lines.length; i++) {
@@ -94,7 +113,7 @@ app.post('/api/process-snapshots', async (req, res) => {
     const today_call_queue: any[] = [];
 
     for (const s of currentRecords) {
-      const expectedUnit = getExpectedUnitForFlow(s.flow_number);
+      const expectedUnit = getExpectedUnitForFlow(s.flow_number, referenceDateStr);
       const delta = s.current_unit - expectedUnit;
       
       const prevUnit = previousMap.get(s.email);
@@ -103,17 +122,19 @@ app.post('/api/process-snapshots', async (req, res) => {
 
       let status = 'Green';
       
-      if (expectedUnit >= 14 && s.current_unit >= 13) {
+      if (expectedUnit === 14 && s.current_unit >= 13) {
         status = 'Graduated';
       } else if (isRed && prevUnit !== undefined && !hasMovement) {
         // Red zone with zero movement from previous snapshot is treated as Churn
         status = 'Churn';
-      } else if (isRed) {
+      } else if (expectedUnit === 14 && s.current_unit < 12) {
         status = 'Red';
+      } else if (delta >= -2) {
+        status = 'Green';
       } else if (delta === -3 || delta === -4) {
         status = 'Yellow';
       } else {
-        status = 'Green';
+        status = 'Red';
       }
 
       // Classification mapping
@@ -125,18 +146,23 @@ app.post('/api/process-snapshots', async (req, res) => {
         // Check not_started list condition: flow >= 60 and current_unit <= 1
         if (s.flow_number >= 60 && s.current_unit <= 1) {
           not_started++;
-        } else if (status === 'Green') {
-          in_norm_green++;
-        } else if (status === 'Yellow') {
-          lagging_yellow++;
-        } else if (status === 'Red') {
+        } else if (s.flow_number >= 57) {
+          if (status === 'Green') {
+            in_norm_green++;
+          } else if (status === 'Yellow') {
+            lagging_yellow++;
+          } else if (status === 'Red') {
+            critical_red++;
+          }
+        } else {
+          // old flows 42-56 who never reached units 13-14 are critical_red
           critical_red++;
         }
       }
 
       // Add to today call queue lists if active and lagging
       if (status !== 'Graduated' && status !== 'Churn') {
-        if (status === 'Yellow') {
+        if (s.flow_number >= 57 && status === 'Yellow') {
           today_call_queue.push({
             email: s.email,
             flow: s.flow_number,
@@ -144,7 +170,7 @@ app.post('/api/process-snapshots', async (req, res) => {
             delta,
             reason: 'Lagging Yellow'
           });
-        } else if (status === 'Red') {
+        } else if (status === 'Red' || (s.flow_number <= 56 && status !== 'Graduated')) {
           today_call_queue.push({
             email: s.email,
             flow: s.flow_number,

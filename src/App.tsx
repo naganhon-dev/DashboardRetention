@@ -10,7 +10,7 @@ import { cn } from './lib/utils';
 import { differenceInDays, parseISO } from 'date-fns';
 
 export default function App() {
-  const { flows, snapshots, aiMetrics, interactions, updateFlows, addSnapshots, updateSnapshots, updateAiMetrics, addInteraction, isLoaded } = useStore();
+  const { flows, snapshots, aiMetrics, interactions, updateFlows, addSnapshots, updateSnapshots, updateAiMetrics, addInteraction, clearAllData, isLoaded } = useStore();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analytics' | 'data'>('dashboard');
   const [selectedFlowFilter, setSelectedFlowFilter] = useState<string>('all_active');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -155,6 +155,7 @@ export default function App() {
             existingSnapshots={snapshots} 
             addSnapshots={addSnapshots} 
             updateAiMetrics={updateAiMetrics} 
+            clearAllData={clearAllData}
           />
         )}
       </main>

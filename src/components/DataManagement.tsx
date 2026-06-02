@@ -12,9 +12,10 @@ interface DataManagementProps {
   existingSnapshots: StudentSnapshot[];
   addSnapshots: (snapshots: StudentSnapshot[]) => void;
   updateAiMetrics?: (metrics: AIMetrics | null) => void;
+  clearAllData?: () => void;
 }
 
-export function DataManagement({ flows, updateFlows, existingSnapshots, addSnapshots, updateAiMetrics }: DataManagementProps) {
+export function DataManagement({ flows, updateFlows, existingSnapshots, addSnapshots, updateAiMetrics, clearAllData }: DataManagementProps) {
   const [newFlowNumber, setNewFlowNumber] = useState('');
   const [newFlowDate, setNewFlowDate] = useState('');
   const [snapshotDate, setSnapshotDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -263,6 +264,30 @@ export function DataManagement({ flows, updateFlows, existingSnapshots, addSnaps
           </table>
         </div>
       </div>
+
+      {clearAllData && (
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-rose-100 p-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-rose-600 mb-2 flex items-center">
+            <Trash2 className="w-4 h-4 mr-2" />
+            Опасная зона: Смена данных и очистка
+          </h2>
+          <p className="text-xs text-[#6B7280] mb-4">
+            Эта операция безвозвратно удалит все сохраненные и ранее импортированные срезы студентов, логи Telegram/звонков методолога Светланы А., а также созданные календари потоков. Сервис вернется в исходное состояние, готовый к первой выгрузке.
+          </p>
+          <button
+            onClick={() => {
+              if (window.confirm('Вы действительно хотите удалить абсолютно все данные? Это действие необратимо и сотрет архив.')) {
+                clearAllData();
+                setUploadStatus(null);
+                alert('База данных успешно очищена! Теперь вы можете загрузить новый файл выгрузки.');
+              }
+            }}
+            className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+          >
+            Очистить всю базу студентов и потоков
+          </button>
+        </div>
+      )}
     </div>
   );
 }
